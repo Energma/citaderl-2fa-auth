@@ -1,0 +1,60 @@
+name: citadel_auth
+description: "Privacy-first 2FA authenticator. Your secrets. Your fortress. No exceptions."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Database (encrypted)
+  sqflite_sqlcipher: ^3.1.0+1
+  path: ^1.9.1
+  path_provider: ^2.1.5
+
+  # Crypto
+  cryptography: ^2.7.0
+  base32: ^2.1.3
+  crypto: ^3.0.6
+  pointycastle: ^3.9.1
+
+  # Platform services
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^9.2.4
+
+  # QR code
+  mobile_scanner: ^6.0.2
+  qr_flutter: ^4.1.0
+
+  # UI
+  flutter_svg: ^2.0.17
+  flutter_slidable: ^4.0.0
+  uuid: ^4.5.1
+  intl: ^0.20.2
+  share_plus: ^10.1.4
+  file_picker: ^9.0.0
+  image_picker: ^1.1.2
+  cached_network_image: ^3.4.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  riverpod_generator: ^2.6.3
+  build_runner: ^2.4.14
+  json_serializable: ^6.9.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/logo/

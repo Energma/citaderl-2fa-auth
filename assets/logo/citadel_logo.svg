@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0891B2"/>
+    </linearGradient>
+    <linearGradient id="innerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield body -->
+  <path d="M256 28 L462 108 C462 108 472 310 256 484 C40 310 50 108 50 108 Z"
+        fill="url(#shieldGrad)" stroke="none"/>
+  <!-- Inner shield highlight -->
+  <path d="M256 64 L428 132 C428 132 436 300 256 448 C76 300 84 132 84 132 Z"
+        fill="none" stroke="url(#innerGrad)" stroke-width="4" opacity="0.5"/>
+  <!-- Keyhole circle -->
+  <circle cx="256" cy="210" r="52" fill="white" opacity="0.95"/>
+  <!-- Keyhole slot -->
+  <path d="M238 240 L256 340 L274 240 Z" fill="white" opacity="0.95"/>
+  <!-- Inner keyhole circle (dark) -->
+  <circle cx="256" cy="210" r="28" fill="#0E7490"/>
+  <!-- Turrets/battlements at top -->
+  <rect x="156" y="80" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
+  <rect x="244" y="56" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
+  <rect x="332" y="80" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
+</svg>
