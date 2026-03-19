@@ -1,13 +1,17 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
-import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../../core/providers.dart';
 import '../../core/crypto/import_export.dart';
+import '../../core/crypto/vault_encryption.dart';
 import '../../ui/theme/palette.dart';
+import 'package:crypto/crypto.dart';
+import 'pin_setup_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -31,36 +35,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           _sectionHeader(theme, 'Security'),
-          ListTile(
-            leading: const Icon(Icons.fingerprint),
-            title: const Text('Biometric Unlock'),
-            subtitle: const Text('Use fingerprint or face to unlock'),
-            trailing: FutureBuilder<bool>(
-              future: ref.read(keystoreServiceProvider).isBiometricEnabled(),
-              builder: (ctx, snap) {
-                return Switch(
-                  value: snap.data ?? false,
-                  onChanged: (v) async {
-                    final keystore = ref.read(keystoreServiceProvider);
-                    if (v) {
-                      final bio = ref.read(biometricServiceProvider);
-                      final available = await bio.isAvailable();
-                      if (!available) {
-                        if (ctx.mounted) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(content: Text('Biometrics not available')),
-                          );
-                        }
-                        return;
-                      }
-                    }
-                    await keystore.setBiometricEnabled(v);
-                    (ctx as Element).markNeedsBuild();
-                  },
-                );
-              },
-            ),
-          ),
+          _BiometricTile(ref: ref),
+          _PinTile(ref: ref),
           ListTile(
             leading: const Icon(Icons.timer),
             title: const Text('Auto-lock Timeout'),
@@ -138,11 +114,11 @@ class SettingsScreen extends ConsumerWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    ShaderMask(
-                      shaderCallback: (bounds) => const LinearGradient(
-                        colors: [Palette.primary, Palette.accent],
-                      ).createShader(bounds),
-                      child: const Icon(Icons.bolt, size: 20, color: Colors.white),
+                    Image.asset(
+                      'assets/logo/energma_logo.png',
+                      width: 20,
+                      height: 20,
+                      color: Palette.primary,
                     ),
                     const SizedBox(width: 4),
                     Text(
@@ -205,6 +181,12 @@ class SettingsScreen extends ConsumerWidget {
     return SimpleDialogOption(
       onPressed: () {
         ref.read(themeModeProvider.notifier).state = mode;
+        final modeStr = switch (mode) {
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+          _ => 'system',
+        };
+        ref.read(keystoreServiceProvider).storeThemeMode(modeStr);
         Navigator.pop(ctx);
       },
       child: Row(
@@ -242,6 +224,7 @@ class SettingsScreen extends ConsumerWidget {
           return SimpleDialogOption(
             onPressed: () {
               ref.read(autoLockDurationProvider.notifier).state = o.$1;
+              ref.read(keystoreServiceProvider).storeAutoLockMinutes(o.$1.inMinutes);
               Navigator.pop(ctx);
             },
             child: Text(o.$2),
@@ -306,9 +289,9 @@ class SettingsScreen extends ConsumerWidget {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _exportTokens(context, ref, encrypted: false);
+              _showEncryptedExportDialog(context, ref);
             },
-            child: const Text('Export'),
+            child: const Text('Encrypted'),
           ),
         ],
       ),
@@ -334,6 +317,92 @@ class SettingsScreen extends ConsumerWidget {
     await Share.shareXFiles(
       [XFile(file.path)],
       text: 'Citadel Auth backup',
+    );
+  }
+
+  void _showEncryptedExportDialog(BuildContext context, WidgetRef ref) {
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Encrypted Export'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Set a password to protect the export file.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'Export password',
+                prefixIcon: Icon(Icons.lock_outline),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: confirmController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'Confirm password',
+                prefixIcon: Icon(Icons.lock_outline),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final password = passwordController.text;
+              if (password.isEmpty) return;
+              if (password != confirmController.text) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Passwords do not match')),
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              await _exportTokensEncrypted(context, ref, password);
+            },
+            child: const Text('Export'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportTokensEncrypted(BuildContext context, WidgetRef ref, String password) async {
+    final tokens = await ref.read(tokenRepositoryProvider).getAll();
+    if (tokens.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No tokens to export')),
+        );
+      }
+      return;
+    }
+
+    final json = ImportExport.exportToJson(tokens);
+    final salt = VaultEncryption.generateSalt();
+    final key = await VaultEncryption.deriveKey(password, salt);
+    final encrypted = await VaultEncryption.encryptString(json, key);
+
+    // Format: base64(salt) + '\n' + encrypted
+    final exportContent = '${base64.encode(salt)}\n$encrypted';
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/citadel_export_${DateTime.now().millisecondsSinceEpoch}.citadel.enc');
+    await file.writeAsString(exportContent);
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'Citadel Auth encrypted backup',
     );
   }
 
@@ -366,5 +435,263 @@ class SettingsScreen extends ConsumerWidget {
         Navigator.popUntil(context, (route) => route.isFirst);
       }
     }
+  }
+}
+
+class _BiometricTile extends ConsumerStatefulWidget {
+  final WidgetRef ref;
+  const _BiometricTile({required this.ref});
+
+  @override
+  ConsumerState<_BiometricTile> createState() => _BiometricTileState();
+}
+
+class _BiometricTileState extends ConsumerState<_BiometricTile> {
+  bool _toggling = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final biometricAsync = ref.watch(biometricEnabledProvider);
+
+    return ListTile(
+      leading: const Icon(Icons.fingerprint),
+      title: const Text('Biometric Unlock'),
+      subtitle: const Text('Use fingerprint or face to unlock'),
+      trailing: biometricAsync.when(
+        data: (enabled) => Switch(
+          value: enabled,
+          onChanged: _toggling ? null : (v) => _toggle(v),
+        ),
+        loading: () => const SizedBox(
+          width: 20, height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        error: (_, _) => const Switch(value: false, onChanged: null),
+      ),
+    );
+  }
+
+  Future<void> _toggle(bool value) async {
+    setState(() => _toggling = true);
+    try {
+      final keystore = ref.read(keystoreServiceProvider);
+      if (value) {
+        final bio = ref.read(biometricServiceProvider);
+        final available = await bio.isAvailable();
+        if (!available) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Biometrics not available on this device')),
+            );
+          }
+          setState(() => _toggling = false);
+          return;
+        }
+      }
+      await keystore.setBiometricEnabled(value);
+      ref.invalidate(biometricEnabledProvider);
+    } finally {
+      if (mounted) setState(() => _toggling = false);
+    }
+  }
+}
+
+class _PinTile extends ConsumerStatefulWidget {
+  final WidgetRef ref;
+  const _PinTile({required this.ref});
+
+  @override
+  ConsumerState<_PinTile> createState() => _PinTileState();
+}
+
+class _PinTileState extends ConsumerState<_PinTile> {
+  @override
+  Widget build(BuildContext context) {
+    final pinAsync = ref.watch(pinEnabledProvider);
+
+    return pinAsync.when(
+      data: (enabled) => ListTile(
+        leading: const Icon(Icons.pin_rounded),
+        title: Text(enabled ? 'Change or Remove PIN' : 'Set Up PIN'),
+        subtitle: Text(enabled ? 'PIN is active' : 'Add a PIN as extra security factor'),
+        onTap: () => enabled ? _showPinOptions(context) : _setupPin(context),
+      ),
+      loading: () => const ListTile(
+        leading: Icon(Icons.pin_rounded),
+        title: Text('PIN'),
+        trailing: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+      ),
+      error: (_, _) => const SizedBox.shrink(),
+    );
+  }
+
+  void _showPinOptions(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('PIN Settings'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _changePin(context);
+            },
+            child: const Text('Change PIN'),
+          ),
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _removePin(context);
+            },
+            child: const Text('Remove PIN', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setupPin(BuildContext context) async {
+    final pin = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const PinSetupScreen()),
+    );
+    if (pin == null || !mounted) return;
+
+    final keystore = ref.read(keystoreServiceProvider);
+    final db = ref.read(vaultDatabaseProvider);
+
+    // Re-key database: current passphrase + new PIN
+    // We need the current passphrase — prompt user
+    final password = await _promptPassword(context, 'Enter your master password to enable PIN');
+    if (password == null || !mounted) return;
+
+    try {
+      final newPassphrase = '$password$pin';
+      await db.rekey(newPassphrase);
+
+      // Store PIN hash
+      final pinHash = sha256.convert(utf8.encode(pin)).toString();
+      await keystore.storePinHash(pinHash);
+
+      // Update stored vault key for biometric
+      final bioEnabled = await keystore.isBiometricEnabled();
+      if (bioEnabled) {
+        await keystore.storeVaultKey(utf8.encode(newPassphrase));
+      }
+
+      ref.invalidate(pinEnabledProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN enabled successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to enable PIN: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _changePin(BuildContext context) async {
+    final newPin = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const PinSetupScreen(title: 'Change PIN')),
+    );
+    if (newPin == null || !mounted) return;
+
+    final password = await _promptPassword(context, 'Enter your master password');
+    if (password == null || !mounted) return;
+
+    final keystore = ref.read(keystoreServiceProvider);
+    final db = ref.read(vaultDatabaseProvider);
+
+    try {
+      final newPassphrase = '$password$newPin';
+      await db.rekey(newPassphrase);
+
+      final pinHash = sha256.convert(utf8.encode(newPin)).toString();
+      await keystore.storePinHash(pinHash);
+
+      final bioEnabled = await keystore.isBiometricEnabled();
+      if (bioEnabled) {
+        await keystore.storeVaultKey(utf8.encode(newPassphrase));
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN changed successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to change PIN: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _removePin(BuildContext context) async {
+    final password = await _promptPassword(context, 'Enter your master password to remove PIN');
+    if (password == null || !mounted) return;
+
+    final keystore = ref.read(keystoreServiceProvider);
+    final db = ref.read(vaultDatabaseProvider);
+
+    try {
+      await db.rekey(password);
+      await keystore.clearPin();
+
+      final bioEnabled = await keystore.isBiometricEnabled();
+      if (bioEnabled) {
+        await keystore.storeVaultKey(utf8.encode(password));
+      }
+
+      ref.invalidate(pinEnabledProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove PIN: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String?> _promptPassword(BuildContext context, String title) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Master password',
+            prefixIcon: Icon(Icons.lock_outline),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
   }
 }

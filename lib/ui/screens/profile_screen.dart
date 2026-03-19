@@ -11,68 +11,162 @@ class ProfileScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+class _ProfileScreenState extends ConsumerState<ProfileScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final profiles = ref.watch(profileListProvider);
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profiles'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _showAddDialog(),
-          ),
-        ],
+        title: const Text('Profiles & Groups'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Profiles'),
+            Tab(text: 'Groups'),
+          ],
+        ),
       ),
-      body: profiles.when(
-        data: (list) => list.isEmpty
-            ? const Center(child: Text('No profiles'))
-            : ReorderableListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: list.length,
-                onReorder: (old, newIdx) {
-                  // TODO: persist reorder
-                },
-                itemBuilder: (context, index) {
-                  final p = list[index];
-                  return Card(
-                    key: ValueKey(p.id),
-                    child: ListTile(
-                      leading: CircleAvatar(backgroundColor: p.color),
-                      title: Text(p.name),
-                      trailing: PopupMenuButton(
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                        ],
-                        onSelected: (v) {
-                          if (v == 'edit') _showEditDialog(p);
-                          if (v == 'delete') _deleteProfile(p);
-                        },
-                      ),
-                    ),
-                  );
-                },
-              ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _ProfileTab(ref: ref),
+          _GroupTab(ref: ref),
+        ],
       ),
     );
   }
+}
 
-  void _showAddDialog() {
-    _showProfileDialog(null);
+// ─── Profiles Tab ───
+
+class _ProfileTab extends ConsumerWidget {
+  final WidgetRef ref;
+  const _ProfileTab({required this.ref});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profiles = ref.watch(profileListProvider);
+
+    return profiles.when(
+      data: (list) => list.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.person_outline,
+                      size: 48,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withAlpha(60)),
+                  const SizedBox(height: 12),
+                  Text('No profiles',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withAlpha(100),
+                          )),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => _showProfileDialog(context, ref, null),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Profile'),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: list.length,
+                    onReorder: (old, newIdx) =>
+                        _reorderProfiles(ref, list, old, newIdx),
+                    itemBuilder: (context, index) {
+                      final p = list[index];
+                      return Card(
+                        key: ValueKey(p.id),
+                        child: ListTile(
+                          leading: CircleAvatar(backgroundColor: p.color),
+                          title: Text(p.name),
+                          trailing: PopupMenuButton(
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                  value: 'edit', child: Text('Edit')),
+                              const PopupMenuItem(
+                                  value: 'delete', child: Text('Delete')),
+                            ],
+                            onSelected: (v) {
+                              if (v == 'edit') {
+                                _showProfileDialog(context, ref, p);
+                              }
+                              if (v == 'delete') {
+                                _deleteProfile(context, ref, p);
+                              }
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          _showProfileDialog(context, ref, null),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add Profile'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
   }
 
-  void _showEditDialog(Profile profile) {
-    _showProfileDialog(profile);
+  Future<void> _reorderProfiles(
+      WidgetRef ref, List<Profile> list, int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
+
+    final orders = <String, int>{};
+    for (var i = 0; i < list.length; i++) {
+      orders[list[i].id] = i;
+    }
+    await ref.read(profileRepositoryProvider).updateSortOrders(orders);
+    ref.invalidate(profileListProvider);
   }
 
-  void _showProfileDialog(Profile? existing) {
-    final nameController = TextEditingController(text: existing?.name ?? '');
-    int selectedColor = existing?.colorValue ?? Palette.profileColors[0].toARGB32();
+  void _showProfileDialog(
+      BuildContext context, WidgetRef ref, Profile? existing) {
+    final nameController =
+        TextEditingController(text: existing?.name ?? '');
+    int selectedColor =
+        existing?.colorValue ?? Palette.profileColors[0].toARGB32();
 
     showDialog(
       context: context,
@@ -94,7 +188,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 children: Palette.profileColors.map((c) {
                   final isSelected = c.toARGB32() == selectedColor;
                   return GestureDetector(
-                    onTap: () => setDialogState(() => selectedColor = c.toARGB32()),
+                    onTap: () => setDialogState(
+                        () => selectedColor = c.toARGB32()),
                     child: Container(
                       width: 36,
                       height: 36,
@@ -102,7 +197,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         color: c,
                         shape: BoxShape.circle,
                         border: isSelected
-                            ? Border.all(color: Theme.of(ctx).colorScheme.onSurface, width: 3)
+                            ? Border.all(
+                                color: Theme.of(ctx)
+                                    .colorScheme
+                                    .onSurface,
+                                width: 3)
                             : null,
                       ),
                     ),
@@ -144,17 +243,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  void _deleteProfile(Profile profile) async {
+  void _deleteProfile(
+      BuildContext context, WidgetRef ref, Profile profile) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Profile'),
-        content: Text('Delete "${profile.name}"? Tokens in this profile will be unassigned.'),
+        content: Text(
+            'Delete "${profile.name}"? Tokens in this profile will be unassigned.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text('Delete',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
@@ -163,6 +268,203 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (confirmed == true) {
       await ref.read(profileRepositoryProvider).delete(profile.id);
       ref.invalidate(profileListProvider);
+    }
+  }
+}
+
+// ─── Groups Tab ───
+
+class _GroupTab extends ConsumerWidget {
+  final WidgetRef ref;
+  const _GroupTab({required this.ref});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final groups = ref.watch(groupListProvider);
+    final theme = Theme.of(context);
+
+    return groups.when(
+      data: (list) => list.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.folder_outlined,
+                      size: 48,
+                      color: theme.colorScheme.onSurface.withAlpha(60)),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No groups',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color:
+                          theme.colorScheme.onSurface.withAlpha(100),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 48),
+                    child: Text(
+                      'Groups let you organize tokens into collapsible categories within each tab.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            theme.colorScheme.onSurface.withAlpha(80),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () =>
+                        _showGroupDialog(context, ref, null),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Group'),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: list.length,
+                    onReorder: (old, newIdx) =>
+                        _reorderGroups(ref, list, old, newIdx),
+                    itemBuilder: (context, index) {
+                      final g = list[index];
+                      return Card(
+                        key: ValueKey(g.id),
+                        child: ListTile(
+                          leading: Icon(Icons.folder_rounded,
+                              color: theme.colorScheme.primary),
+                          title: Text(g.name),
+                          trailing: PopupMenuButton(
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Rename')),
+                              const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('Delete')),
+                            ],
+                            onSelected: (v) {
+                              if (v == 'edit') {
+                                _showGroupDialog(context, ref, g);
+                              }
+                              if (v == 'delete') {
+                                _deleteGroup(context, ref, g);
+                              }
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          _showGroupDialog(context, ref, null),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add Group'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  Future<void> _reorderGroups(WidgetRef ref, List<TokenGroup> list,
+      int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
+
+    final orders = <String, int>{};
+    for (var i = 0; i < list.length; i++) {
+      orders[list[i].id] = i;
+    }
+    await ref
+        .read(profileRepositoryProvider)
+        .updateGroupSortOrders(orders);
+    ref.invalidate(groupListProvider);
+  }
+
+  void _showGroupDialog(
+      BuildContext context, WidgetRef ref, TokenGroup? existing) {
+    final nameController =
+        TextEditingController(text: existing?.name ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? 'New Group' : 'Rename Group'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Group name',
+            hintText: 'e.g. Social, Banking, Dev Tools',
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isEmpty) return;
+
+              final repo = ref.read(profileRepositoryProvider);
+              if (existing != null) {
+                await repo.updateGroup(existing.copyWith(name: name));
+              } else {
+                await repo.addGroup(TokenGroup(name: name));
+              }
+              ref.invalidate(groupListProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: Text(existing == null ? 'Create' : 'Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteGroup(
+      BuildContext context, WidgetRef ref, TokenGroup group) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Group'),
+        content: Text(
+            'Delete "${group.name}"? Tokens in this group will become ungrouped.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delete',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ref.read(profileRepositoryProvider).deleteGroup(group.id);
+      ref.invalidate(groupListProvider);
     }
   }
 }

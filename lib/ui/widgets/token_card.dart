@@ -4,12 +4,15 @@ import 'package:flutter/services.dart';
 import '../../core/crypto/otp_engine.dart';
 import '../../core/models/token.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'service_icon.dart';
 
 class TokenCard extends StatefulWidget {
   final Token token;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final Future<Token> Function()? onCounterIncrement;
+  final VoidCallback? onMoveToProfile;
 
   const TokenCard({
     super.key,
@@ -17,6 +20,8 @@ class TokenCard extends StatefulWidget {
     this.onTap,
     this.onEdit,
     this.onDelete,
+    this.onCounterIncrement,
+    this.onMoveToProfile,
   });
 
   @override
@@ -25,25 +30,44 @@ class TokenCard extends StatefulWidget {
 
 class _TokenCardState extends State<TokenCard>
     with SingleTickerProviderStateMixin {
-  late Timer _timer;
+  Timer? _timer;
   String _code = '';
   String _nextCode = '';
   double _progress = 0;
   int _remaining = 0;
   bool _copied = false;
+  bool _incrementing = false;
 
   @override
   void initState() {
     super.initState();
     _updateCode();
-    _timer =
-        Timer.periodic(const Duration(milliseconds: 500), (_) => _updateCode());
+    if (widget.token.type == OtpType.totp) {
+      _timer =
+          Timer.periodic(const Duration(milliseconds: 500), (_) => _updateCode());
+    }
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _incrementCounter() async {
+    if (_incrementing || widget.onCounterIncrement == null) return;
+    setState(() => _incrementing = true);
+    try {
+      final updated = await widget.onCounterIncrement!();
+      if (mounted) {
+        setState(() {
+          _code = OtpEngine.generateCode(updated);
+          _incrementing = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _incrementing = false);
+    }
   }
 
   void _updateCode() {
@@ -126,6 +150,7 @@ class _TokenCardState extends State<TokenCard>
           color: Colors.transparent,
           child: InkWell(
             onTap: _copyCode,
+            onLongPress: widget.onMoveToProfile,
             borderRadius: BorderRadius.circular(20),
             splashColor: theme.colorScheme.primary.withAlpha(20),
             highlightColor: theme.colorScheme.primary.withAlpha(10),
@@ -239,6 +264,12 @@ class _TokenCardState extends State<TokenCard>
             ),
           ),
         ],
+        if (!_copied && (widget.onEdit != null || widget.onDelete != null))
+          Icon(
+            Icons.chevron_left_rounded,
+            size: 18,
+            color: theme.colorScheme.onSurface.withAlpha(30),
+          ),
       ],
     );
   }
@@ -262,7 +293,38 @@ class _TokenCardState extends State<TokenCard>
           ),
         ),
         if (widget.token.type == OtpType.totp) _buildTimer(theme, isExpiring),
+        if (widget.token.type == OtpType.hotp) _buildHotpIncrement(theme),
       ],
+    );
+  }
+
+  Widget _buildHotpIncrement(ThemeData theme) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        onPressed: _incrementing ? null : _incrementCounter,
+        icon: _incrementing
+            ? SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.colorScheme.primary,
+                ),
+              )
+            : Icon(
+                Icons.refresh_rounded,
+                color: theme.colorScheme.primary,
+              ),
+        tooltip: 'Next code',
+        style: IconButton.styleFrom(
+          backgroundColor: theme.colorScheme.primary.withAlpha(20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
     );
   }
 
@@ -325,34 +387,10 @@ class _TokenCardState extends State<TokenCard>
   }
 
   Widget _buildIcon(ThemeData theme) {
-    final letter = widget.token.issuer.isNotEmpty
-        ? widget.token.issuer[0].toUpperCase()
-        : widget.token.account[0].toUpperCase();
-
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.primary.withAlpha(40),
-            theme.colorScheme.primary.withAlpha(15),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Center(
-        child: Text(
-          letter,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.primary,
-          ),
-        ),
-      ),
+    return ServiceIcon(
+      issuer: widget.token.issuer,
+      account: widget.token.account,
+      size: 44,
     );
   }
 }

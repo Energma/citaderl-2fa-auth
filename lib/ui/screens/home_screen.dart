@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import '../theme/palette.dart';
 import '../../core/models/profile.dart';
+import '../../core/models/token.dart';
 import '../../core/providers.dart';
 import '../widgets/token_card.dart';
 import 'add_token_screen.dart';
@@ -118,6 +121,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ? ref.watch(searchResultsProvider)
         : ref.watch(tokenListProvider);
     final profiles = ref.watch(profileListProvider);
+    final groups = ref.watch(groupListProvider);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -132,9 +136,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             body: tokens.when(
               data: (tokenList) {
                 if (tokenList.isEmpty) return _buildEmptyState(theme);
-                return _buildTokenList(tokenList);
+                return groups.when(
+                  data: (groupList) =>
+                      _buildTokenList(tokenList, groupList),
+                  loading: () => _buildTokenList(tokenList, []),
+                  error: (_, _) => _buildTokenList(tokenList, []),
+                );
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
             ),
           ),
@@ -155,17 +165,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       floating: true,
       snap: true,
       pinned: true,
-      expandedHeight: _isSearching ? null : null,
       title: _isSearching
           ? _buildSearchField(theme)
-          : Text(
-              'Citadel',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-                color: theme.colorScheme.onSurface,
-              ),
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SvgPicture.asset(
+                  'assets/logo/citadel_logo.svg',
+                  width: 32,
+                  height: 32,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Citadel',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
             ),
       actions: [
         IconButton(
@@ -302,11 +322,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           size: 20,
           color: theme.colorScheme.onSurface.withAlpha(120),
         ),
-        tooltip: 'Manage profiles',
+        tooltip: 'Manage profiles & groups',
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        ).then((_) => ref.invalidate(profileListProvider)),
+        ).then((_) {
+          ref.invalidate(profileListProvider);
+          ref.invalidate(groupListProvider);
+        }),
         style: IconButton.styleFrom(
           padding: const EdgeInsets.all(8),
           minimumSize: const Size(36, 36),
@@ -315,44 +338,332 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Widget _buildTokenList(List<dynamic> tokenList) {
+  Widget _buildTokenList(List<Token> tokenList, List<TokenGroup> groups) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Group tokens by groupId
+    final Map<String?, List<Token>> grouped = {};
+    for (final t in tokenList) {
+      grouped.putIfAbsent(t.groupId, () => []).add(t);
+    }
+
+    final ungrouped = grouped.remove(null) ?? [];
+
+    // All groups (even empty ones) so user sees the structure
+    final orderedGroups = groups.toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
     return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(tokenListProvider),
-      child: ListView.builder(
-        padding: const EdgeInsets.only(top: 12, bottom: 96, left: 4, right: 4),
-        itemCount: tokenList.length,
-        itemBuilder: (context, index) {
-          final token = tokenList[index];
-          return TokenCard(
-            token: token,
-            onDelete: () => _deleteToken(token.id),
-            onEdit: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AddTokenScreen(editToken: token),
-                ),
-              );
-              ref.invalidate(tokenListProvider);
-            },
-          );
-        },
+      onRefresh: () async {
+        ref.invalidate(tokenListProvider);
+        ref.invalidate(groupListProvider);
+      },
+      child: ListView(
+        padding:
+            const EdgeInsets.only(top: 8, bottom: 96, left: 4, right: 4),
+        children: [
+          // Ungrouped tokens in a collapsible "General" section
+          if (ungrouped.isNotEmpty)
+            _buildGroupSection(
+              theme,
+              isDark,
+              null,
+              ungrouped,
+            ),
+
+          // Each group as a collapsible section
+          for (final group in orderedGroups)
+            _buildGroupSection(
+              theme,
+              isDark,
+              group,
+              grouped[group.id] ?? [],
+            ),
+        ],
       ),
     );
   }
 
+  Widget _buildGroupSection(
+      ThemeData theme, bool isDark, TokenGroup? group, List<Token> tokens) {
+    final isGeneral = group == null;
+    final name = isGeneral ? 'General' : group.name;
+    final icon = isGeneral ? Icons.apps_rounded : Icons.folder_rounded;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withAlpha(6)
+                : Colors.black.withAlpha(6),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withAlpha(10)
+                  : Colors.black.withAlpha(10),
+            ),
+          ),
+          child: Theme(
+            data: theme.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              key: PageStorageKey('group_${group?.id ?? 'general'}'),
+              initiallyExpanded: true,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              shape: const RoundedRectangleBorder(),
+              collapsedShape: const RoundedRectangleBorder(),
+              backgroundColor: Colors.transparent,
+              collapsedBackgroundColor: Colors.transparent,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withAlpha(isDark ? 30 : 20),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${tokens.length}',
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.expand_more_rounded,
+                    size: 20,
+                    color: theme.colorScheme.onSurface.withAlpha(100),
+                  ),
+                ],
+              ),
+              title: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: isGeneral
+                        ? theme.colorScheme.onSurface.withAlpha(140)
+                        : theme.colorScheme.primary.withAlpha(180),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withAlpha(200),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+              children: tokens.isEmpty
+                  ? [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 16, horizontal: 20),
+                        child: Text(
+                          'No tokens in this group',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withAlpha(80),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ]
+                  : tokens.map((t) => _buildTokenCard(t)).toList(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTokenCard(Token token) {
+    return TokenCard(
+      key: ValueKey(token.id),
+      token: token,
+      onDelete: () => _deleteToken(token.id),
+      onEdit: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AddTokenScreen(editToken: token),
+          ),
+        );
+        ref.invalidate(tokenListProvider);
+        ref.invalidate(groupListProvider);
+      },
+      onCounterIncrement: token.type == OtpType.hotp
+          ? () async {
+              final repo = ref.read(tokenRepositoryProvider);
+              await repo.incrementHotpCounter(token);
+              ref.invalidate(tokenListProvider);
+              return token.copyWith(counter: token.counter + 1);
+            }
+          : null,
+      onMoveToProfile: () => _showMoveDialog(token),
+    );
+  }
+
+  Future<void> _reorderTokens(
+      List<dynamic> tokenList, int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final item = tokenList.removeAt(oldIndex);
+    tokenList.insert(newIndex, item);
+
+    final orders = <String, int>{};
+    for (var i = 0; i < tokenList.length; i++) {
+      orders[tokenList[i].id] = i;
+    }
+    await ref.read(tokenRepositoryProvider).updateSortOrders(orders);
+    ref.invalidate(tokenListProvider);
+  }
+
+  void _showMoveDialog(Token token) async {
+    final profiles = _profiles;
+    final groups = ref.read(groupListProvider).valueOrNull ?? [];
+
+    final result = await showModalBottomSheet<_MoveResult>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withAlpha(40),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Profile section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Profile',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ListTile(
+                  leading: const Icon(Icons.remove_circle_outline, size: 20),
+                  title: const Text('None'),
+                  dense: true,
+                  selected: token.profileId == null,
+                  onTap: () => Navigator.pop(
+                      ctx, _MoveResult(profileId: '__none__')),
+                ),
+                ...profiles.map((p) => ListTile(
+                      leading: CircleAvatar(
+                          backgroundColor: p.color, radius: 8),
+                      title: Text(p.name),
+                      dense: true,
+                      selected: token.profileId == p.id,
+                      onTap: () => Navigator.pop(
+                          ctx, _MoveResult(profileId: p.id)),
+                    )),
+
+                if (groups.isNotEmpty) ...[
+                  const Divider(height: 20),
+                  // Group section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Group',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ListTile(
+                    leading:
+                        const Icon(Icons.remove_circle_outline, size: 20),
+                    title: const Text('None'),
+                    dense: true,
+                    selected: token.groupId == null,
+                    onTap: () => Navigator.pop(
+                        ctx, _MoveResult(groupId: '__none__')),
+                  ),
+                  ...groups.map((g) => ListTile(
+                        leading: Icon(Icons.folder_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary),
+                        title: Text(g.name),
+                        dense: true,
+                        selected: token.groupId == g.id,
+                        onTap: () => Navigator.pop(
+                            ctx, _MoveResult(groupId: g.id)),
+                      )),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (result == null) return;
+    final repo = ref.read(tokenRepositoryProvider);
+
+    if (result.profileId != null) {
+      final pid = result.profileId == '__none__' ? null : result.profileId;
+      await repo.updateProfile(token.id, pid);
+    }
+    if (result.groupId != null) {
+      final gid = result.groupId == '__none__' ? null : result.groupId;
+      await repo.updateGroup(token.id, gid);
+    }
+    ref.invalidate(tokenListProvider);
+  }
+
   Widget _buildFab(ThemeData theme) {
-    return FloatingActionButton(
+    final isDark = theme.brightness == Brightness.dark;
+    return FloatingActionButton.extended(
       onPressed: () async {
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const AddTokenScreen()),
         );
         ref.invalidate(tokenListProvider);
+        ref.invalidate(groupListProvider);
       },
-      elevation: 2,
+      elevation: 3,
+      backgroundColor: isDark ? Palette.darkCard : Palette.darkBg,
+      foregroundColor: Palette.accent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: const Icon(Icons.add_rounded, size: 28),
+      icon: const Icon(Icons.lock_open_rounded, size: 22),
+      label: const Text(
+        'Add Key',
+        style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
+      ),
     );
   }
 
@@ -371,17 +682,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withAlpha(20),
-                borderRadius: BorderRadius.circular(24),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.8, end: 1.0),
+              duration: const Duration(milliseconds: 1500),
+              curve: Curves.easeInOut,
+              builder: (context, value, child) => Transform.scale(
+                scale: value,
+                child: child,
               ),
-              child: Icon(
-                Icons.shield_outlined,
-                size: 40,
-                color: theme.colorScheme.primary.withAlpha(160),
+              child: SvgPicture.asset(
+                'assets/logo/citadel_logo.svg',
+                width: 96,
+                height: 96,
               ),
             ),
             const SizedBox(height: 24),
@@ -406,4 +718,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ),
     );
   }
+}
+
+class _MoveResult {
+  final String? profileId;
+  final String? groupId;
+  _MoveResult({this.profileId, this.groupId});
 }

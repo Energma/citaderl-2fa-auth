@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:crypto/crypto.dart';
 import '../../core/providers.dart';
+import 'pin_setup_screen.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
@@ -17,6 +19,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _obscure = true;
   bool _loading = false;
   bool _enableBiometric = true;
+  bool _enablePin = false;
   String? _error;
 
   @override
@@ -39,20 +42,42 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       return;
     }
 
+    // If PIN enabled, prompt for PIN setup first
+    String? pin;
+    if (_enablePin && mounted) {
+      pin = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(builder: (_) => const PinSetupScreen()),
+      );
+      if (pin == null) return; // User cancelled PIN setup
+    }
+
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    final success = await ref.read(vaultProvider.notifier).createVault(password);
+    // Combine password + PIN for vault passphrase
+    final passphrase = pin != null ? '$password$pin' : password;
+    final success = await ref.read(vaultProvider.notifier).createVault(passphrase);
 
-    if (success && _enableBiometric) {
+    if (success) {
       final keystore = ref.read(keystoreServiceProvider);
-      final biometric = ref.read(biometricServiceProvider);
-      final available = await biometric.isAvailable();
-      if (available) {
-        await keystore.storeVaultKey(utf8.encode(password));
-        await keystore.setBiometricEnabled(true);
+
+      // Store PIN hash if PIN was set
+      if (pin != null) {
+        final pinHash = sha256.convert(utf8.encode(pin)).toString();
+        await keystore.storePinHash(pinHash);
+      }
+
+      // Setup biometric
+      if (_enableBiometric) {
+        final biometric = ref.read(biometricServiceProvider);
+        final available = await biometric.isAvailable();
+        if (available) {
+          await keystore.storeVaultKey(utf8.encode(passphrase));
+          await keystore.setBiometricEnabled(true);
+        }
       }
     }
 
@@ -126,6 +151,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   subtitle: const Text('Use fingerprint or face to unlock'),
                   value: _enableBiometric,
                   onChanged: (v) => setState(() => _enableBiometric = v),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                SwitchListTile(
+                  title: const Text('Enable PIN'),
+                  subtitle: const Text('Add a 6-digit PIN as extra security factor'),
+                  value: _enablePin,
+                  onChanged: (v) => setState(() => _enablePin = v),
                   contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 24),

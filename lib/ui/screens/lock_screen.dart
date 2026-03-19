@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:crypto/crypto.dart';
 import '../../core/providers.dart';
 import '../../ui/theme/palette.dart';
+import '../widgets/pin_input.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key});
@@ -16,6 +19,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   bool _obscure = true;
   bool _loading = false;
   String? _error;
+  bool _showPinInput = false;
+  String? _pendingPassphrase;
+  String? _pinError;
 
   @override
   void initState() {
@@ -43,9 +49,56 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (success && mounted) {
       final key = await keystore.getVaultKey();
       if (key != null) {
-        // The stored key is the passphrase encoded as UTF-8
+        // The stored key is the full passphrase (password+pin) encoded as UTF-8
         final passphrase = String.fromCharCodes(key);
         await _unlock(passphrase);
+      }
+    }
+  }
+
+  Future<void> _handlePasswordSubmit() async {
+    final password = _passwordController.text;
+    if (password.isEmpty) return;
+
+    final keystore = ref.read(keystoreServiceProvider);
+    final pinEnabled = await keystore.isPinEnabled();
+
+    if (pinEnabled) {
+      setState(() {
+        _pendingPassphrase = password;
+        _showPinInput = true;
+        _error = null;
+      });
+    } else {
+      await _unlock(password);
+    }
+  }
+
+  Future<void> _handlePinCompleted(String pin) async {
+    if (_pendingPassphrase == null) return;
+
+    // Validate PIN hash first (fast check)
+    final keystore = ref.read(keystoreServiceProvider);
+    final storedHash = await keystore.getPinHash();
+    final enteredHash = sha256.convert(utf8.encode(pin)).toString();
+
+    if (storedHash != null && storedHash != enteredHash) {
+      setState(() => _pinError = 'Wrong PIN');
+      return;
+    }
+
+    // PIN valid, combine with password for vault unlock
+    final fullPassphrase = '$_pendingPassphrase$pin';
+    final success = await ref.read(vaultProvider.notifier).unlock(fullPassphrase);
+
+    if (mounted) {
+      if (!success) {
+        setState(() {
+          _pinError = 'Failed to unlock vault';
+          _showPinInput = false;
+          _pendingPassphrase = null;
+          _error = 'Wrong password or PIN combination';
+        });
       }
     }
   }
@@ -76,59 +129,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           children: [
             Expanded(
               child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SvgPicture.asset('assets/logo/citadel_logo.svg', width: 72, height: 72),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Citadel Auth',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Enter your master password to unlock',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withAlpha(153),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: _obscure,
-                        autofocus: true,
-                        onSubmitted: (_) => _unlock(_passwordController.text),
-                        decoration: InputDecoration(
-                          hintText: 'Master password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                            onPressed: () => setState(() => _obscure = !_obscure),
-                          ),
-                          errorText: _error,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _loading ? null : () => _unlock(_passwordController.text),
-                          child: _loading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('Unlock'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                child: _showPinInput
+                    ? _buildPinView(theme)
+                    : _buildPasswordView(theme),
               ),
             ),
             // Powered by Energma
@@ -170,6 +173,85 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPasswordView(ThemeData theme) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SvgPicture.asset('assets/logo/citadel_logo.svg', width: 72, height: 72),
+          const SizedBox(height: 16),
+          Text(
+            'Citadel Auth',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter your master password to unlock',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withAlpha(153),
+            ),
+          ),
+          const SizedBox(height: 32),
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscure,
+            autofocus: true,
+            onSubmitted: (_) => _handlePasswordSubmit(),
+            decoration: InputDecoration(
+              hintText: 'Master password',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+              errorText: _error,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _handlePasswordSubmit,
+              child: _loading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Unlock'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPinView(ThemeData theme) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          onPressed: () => setState(() {
+            _showPinInput = false;
+            _pendingPassphrase = null;
+            _pinError = null;
+          }),
+          icon: const Icon(Icons.arrow_back),
+        ),
+        const SizedBox(height: 16),
+        PinInput(
+          onCompleted: _handlePinCompleted,
+          error: _pinError,
+          title: 'Enter PIN',
+          subtitle: 'Enter your 6-digit PIN to unlock',
+        ),
+      ],
     );
   }
 }

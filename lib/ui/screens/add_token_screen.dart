@@ -27,6 +27,7 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
   int _digits = 6;
   int _period = 30;
   String? _profileId;
+  String? _groupId;
   String? _error;
 
   bool get _isEditing => widget.editToken != null;
@@ -45,6 +46,7 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
       _digits = t.digits;
       _period = t.period;
       _profileId = t.profileId;
+      _groupId = t.groupId;
     }
   }
 
@@ -61,7 +63,10 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
   Future<void> _saveToken() async {
     final issuer = _issuerController.text.trim();
     final account = _accountController.text.trim();
-    final secret = _secretController.text.trim().toUpperCase().replaceAll(RegExp(r'[\s\-]'), '');
+    final secret = _secretController.text
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'[\s\-]'), '');
 
     if (account.isEmpty) {
       setState(() => _error = 'Account name is required');
@@ -88,6 +93,7 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
         digits: _digits,
         period: _period,
         profileId: _profileId,
+        groupId: _groupId,
       );
       await repo.update(updated);
     } else {
@@ -100,6 +106,7 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
         digits: _digits,
         period: _period,
         profileId: _profileId,
+        groupId: _groupId,
       );
       await repo.add(token);
     }
@@ -121,7 +128,8 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
           _period = token.period;
           _error = null;
         });
-        _tabController.animateTo(_tabController.length - 1); // Go to manual tab
+        _tabController
+            .animateTo(_tabController.length - 1); // Go to manual tab
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('QR code scanned successfully')),
         );
@@ -163,20 +171,25 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
               controller: _tabController,
               children: [
                 // QR Scanner tab
-                QrScannerWidget(onScanned: _handleQrScanned),
+                ClipRect(
+                    child:
+                        QrScannerWidget(onScanned: _handleQrScanned)),
                 // URI paste tab
-                Padding(
+                ClipRect(
+                    child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Paste otpauth:// URI', style: theme.textTheme.titleMedium),
+                      Text('Paste otpauth:// URI',
+                          style: theme.textTheme.titleMedium),
                       const SizedBox(height: 16),
                       TextField(
                         controller: _uriController,
                         maxLines: 3,
                         decoration: const InputDecoration(
-                          hintText: 'otpauth://totp/Example:user@email.com?secret=...',
+                          hintText:
+                              'otpauth://totp/Example:user@email.com?secret=...',
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -189,13 +202,15 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
                       ),
                       if (_error != null) ...[
                         const SizedBox(height: 12),
-                        Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                        Text(_error!,
+                            style: TextStyle(
+                                color: theme.colorScheme.error)),
                       ],
                     ],
                   ),
-                ),
+                )),
                 // Manual entry tab
-                _buildManualForm(theme),
+                ClipRect(child: _buildManualForm(theme)),
               ],
             ),
     );
@@ -203,6 +218,8 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
 
   Widget _buildManualForm(ThemeData theme) {
     final profiles = ref.watch(profileListProvider);
+    final groups = ref.watch(groupListProvider);
+    final isDark = theme.brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -237,7 +254,8 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
           // Profile selector
           profiles.when(
             data: (profileList) => DropdownButtonFormField<String?>(
-              initialValue: _profileId,
+              value: _profileId,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Profile'),
               items: [
                 const DropdownMenuItem(value: null, child: Text('None')),
@@ -245,9 +263,12 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
                       value: p.id,
                       child: Row(
                         children: [
-                          CircleAvatar(backgroundColor: p.color, radius: 6),
+                          CircleAvatar(
+                              backgroundColor: p.color, radius: 6),
                           const SizedBox(width: 8),
-                          Text(p.name),
+                          Expanded(
+                              child: Text(p.name,
+                                  overflow: TextOverflow.ellipsis)),
                         ],
                       ),
                     )),
@@ -258,69 +279,155 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
             error: (_, _) => const SizedBox.shrink(),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
+          // Group selector
+          groups.when(
+            data: (groupList) => groupList.isEmpty
+                ? const SizedBox.shrink()
+                : DropdownButtonFormField<String?>(
+                    value: _groupId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Group'),
+                    items: [
+                      const DropdownMenuItem(
+                          value: null, child: Text('None')),
+                      ...groupList.map((g) => DropdownMenuItem(
+                            value: g.id,
+                            child: Row(
+                              children: [
+                                Icon(Icons.folder_rounded,
+                                    size: 16,
+                                    color: theme.colorScheme.primary),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                    child: Text(g.name,
+                                        overflow:
+                                            TextOverflow.ellipsis)),
+                              ],
+                            ),
+                          )),
+                    ],
+                    onChanged: (v) => setState(() => _groupId = v),
+                  ),
+            loading: () => const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
+          ),
+
+          const SizedBox(height: 20),
+
           // Advanced settings
-          ExpansionTile(
-            title: const Text('Advanced'),
-            tilePadding: EdgeInsets.zero,
-            children: [
-              Row(
+          Container(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withAlpha(6)
+                  : Colors.black.withAlpha(6),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                childrenPadding:
+                    const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                collapsedShape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: Row(
+                  children: [
+                    Icon(Icons.tune_rounded,
+                        size: 18,
+                        color:
+                            theme.colorScheme.onSurface.withAlpha(140)),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Advanced',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color:
+                            theme.colorScheme.onSurface.withAlpha(180),
+                      ),
+                    ),
+                  ],
+                ),
                 children: [
-                  Expanded(
-                    child: DropdownButtonFormField<OtpType>(
-                      initialValue: _type,
-                      decoration: const InputDecoration(labelText: 'Type'),
-                      items: OtpType.values
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t.name.toUpperCase())))
-                          .toList(),
-                      onChanged: (v) => setState(() => _type = v!),
+                  const SizedBox(height: 8),
+                  _buildAdvancedRow(
+                    theme,
+                    left: _buildAdvancedChip(
+                      theme: theme,
+                      label: 'Type',
+                      value: _type.name.toUpperCase(),
+                      icon: Icons.code_rounded,
+                      onTap: () => _showOptionPicker<OtpType>(
+                        title: 'OTP Type',
+                        options: OtpType.values,
+                        current: _type,
+                        labelOf: (v) => v.name.toUpperCase(),
+                        onSelected: (v) =>
+                            setState(() => _type = v),
+                      ),
+                    ),
+                    right: _buildAdvancedChip(
+                      theme: theme,
+                      label: 'Algorithm',
+                      value: _algorithm.name.toUpperCase(),
+                      icon: Icons.lock_rounded,
+                      onTap: () => _showOptionPicker<Algorithm>(
+                        title: 'Algorithm',
+                        options: Algorithm.values,
+                        current: _algorithm,
+                        labelOf: (v) => v.name.toUpperCase(),
+                        onSelected: (v) =>
+                            setState(() => _algorithm = v),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<Algorithm>(
-                      initialValue: _algorithm,
-                      decoration: const InputDecoration(labelText: 'Algorithm'),
-                      items: Algorithm.values
-                          .map((a) => DropdownMenuItem(value: a, child: Text(a.name.toUpperCase())))
-                          .toList(),
-                      onChanged: (v) => setState(() => _algorithm = v!),
+                  const SizedBox(height: 8),
+                  _buildAdvancedRow(
+                    theme,
+                    left: _buildAdvancedChip(
+                      theme: theme,
+                      label: 'Digits',
+                      value: '$_digits',
+                      icon: Icons.pin_rounded,
+                      onTap: () => _showOptionPicker<int>(
+                        title: 'Digits',
+                        options: [6, 7, 8],
+                        current: _digits,
+                        labelOf: (v) => '$v digits',
+                        onSelected: (v) =>
+                            setState(() => _digits = v),
+                      ),
+                    ),
+                    right: _buildAdvancedChip(
+                      theme: theme,
+                      label: 'Period',
+                      value: '${_period}s',
+                      icon: Icons.timer_rounded,
+                      onTap: () => _showOptionPicker<int>(
+                        title: 'Period',
+                        options: [30, 60, 90],
+                        current: _period,
+                        labelOf: (v) => '${v}s',
+                        onSelected: (v) =>
+                            setState(() => _period = v),
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _digits,
-                      decoration: const InputDecoration(labelText: 'Digits'),
-                      items: [6, 7, 8]
-                          .map((d) => DropdownMenuItem(value: d, child: Text('$d')))
-                          .toList(),
-                      onChanged: (v) => setState(() => _digits = v!),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _period,
-                      decoration: const InputDecoration(labelText: 'Period (s)'),
-                      items: [30, 60, 90]
-                          .map((p) => DropdownMenuItem(value: p, child: Text('${p}s')))
-                          .toList(),
-                      onChanged: (v) => setState(() => _period = v!),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
 
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            Text(_error!,
+                style: TextStyle(color: theme.colorScheme.error)),
           ],
           const SizedBox(height: 24),
           SizedBox(
@@ -332,6 +439,138 @@ class _AddTokenScreenState extends ConsumerState<AddTokenScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAdvancedRow(ThemeData theme,
+      {required Widget left, required Widget right}) {
+    return Row(
+      children: [
+        Expanded(child: left),
+        const SizedBox(width: 8),
+        Expanded(child: right),
+      ],
+    );
+  }
+
+  Widget _buildAdvancedChip({
+    required ThemeData theme,
+    required String label,
+    required String value,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final isDark = theme.brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withAlpha(8)
+              : Colors.black.withAlpha(8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withAlpha(12)
+                : Colors.black.withAlpha(8),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon,
+                size: 16,
+                color: theme.colorScheme.primary.withAlpha(180)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface.withAlpha(100),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 16,
+                color: theme.colorScheme.onSurface.withAlpha(60)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOptionPicker<T>({
+    required String title,
+    required List<T> options,
+    required T current,
+    required String Function(T) labelOf,
+    required void Function(T) onSelected,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withAlpha(40),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(title,
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 8),
+                ...options.map((opt) => ListTile(
+                      title: Text(labelOf(opt)),
+                      trailing: opt == current
+                          ? Icon(Icons.check_rounded,
+                              color: theme.colorScheme.primary)
+                          : null,
+                      onTap: () {
+                        onSelected(opt);
+                        Navigator.pop(ctx);
+                      },
+                    )),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

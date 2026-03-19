@@ -6,7 +6,7 @@ import '../../core/models/profile.dart';
 
 class VaultDatabase {
   static const String _dbName = 'citadel_vault.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   Database? _database;
 
@@ -70,10 +70,8 @@ class VaultDatabase {
     await db.execute('''
       CREATE TABLE groups (
         id TEXT PRIMARY KEY,
-        profileId TEXT NOT NULL,
         name TEXT NOT NULL,
-        sortOrder INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (profileId) REFERENCES profiles(id) ON DELETE CASCADE
+        sortOrder INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -118,7 +116,20 @@ class VaultDatabase {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Future migrations go here
+    if (oldVersion < 2) {
+      // Make groups global (remove profileId dependency)
+      await db.execute('''
+        CREATE TABLE groups_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          sortOrder INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      await db.execute(
+          'INSERT INTO groups_new (id, name, sortOrder) SELECT id, name, sortOrder FROM groups');
+      await db.execute('DROP TABLE groups');
+      await db.execute('ALTER TABLE groups_new RENAME TO groups');
+    }
   }
 
   // --- Token CRUD ---
@@ -175,13 +186,8 @@ class VaultDatabase {
 
   // --- Group CRUD ---
 
-  Future<List<TokenGroup>> getGroupsByProfile(String profileId) async {
-    final maps = await _db.query(
-      'groups',
-      where: 'profileId = ?',
-      whereArgs: [profileId],
-      orderBy: 'sortOrder ASC',
-    );
+  Future<List<TokenGroup>> getAllGroups() async {
+    final maps = await _db.query('groups', orderBy: 'sortOrder ASC');
     return maps.map((m) => TokenGroup.fromMap(m)).toList();
   }
 
@@ -189,8 +195,26 @@ class VaultDatabase {
     await _db.insert('groups', group.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<void> updateGroup(TokenGroup group) async {
+    await _db.update('groups', group.toMap(), where: 'id = ?', whereArgs: [group.id]);
+  }
+
   Future<void> deleteGroup(String id) async {
     await _db.delete('groups', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateGroupSortOrders(Map<String, int> idToOrder) async {
+    final batch = _db.batch();
+    for (final entry in idToOrder.entries) {
+      batch.update('groups', {'sortOrder': entry.value},
+          where: 'id = ?', whereArgs: [entry.key]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> updateTokenGroup(String tokenId, String? groupId) async {
+    await _db.update('tokens', {'groupId': groupId},
+        where: 'id = ?', whereArgs: [tokenId]);
   }
 
   // --- Search ---
@@ -218,5 +242,36 @@ class VaultDatabase {
   Future<int> tokenCount() async {
     final result = await _db.rawQuery('SELECT COUNT(*) as count FROM tokens');
     return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Batch update token sort orders.
+  Future<void> updateTokenSortOrders(Map<String, int> idToOrder) async {
+    final batch = _db.batch();
+    for (final entry in idToOrder.entries) {
+      batch.update('tokens', {'sortOrder': entry.value},
+          where: 'id = ?', whereArgs: [entry.key]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Batch update profile sort orders.
+  Future<void> updateProfileSortOrders(Map<String, int> idToOrder) async {
+    final batch = _db.batch();
+    for (final entry in idToOrder.entries) {
+      batch.update('profiles', {'sortOrder': entry.value},
+          where: 'id = ?', whereArgs: [entry.key]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Update a token's profile assignment.
+  Future<void> updateTokenProfile(String tokenId, String? profileId) async {
+    await _db.update('tokens', {'profileId': profileId},
+        where: 'id = ?', whereArgs: [tokenId]);
+  }
+
+  /// Re-key the database with a new passphrase (for PIN changes).
+  Future<void> rekey(String newPassphrase) async {
+    await _db.rawQuery("PRAGMA rekey = '$newPassphrase'");
   }
 }

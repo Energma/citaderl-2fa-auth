@@ -7,9 +7,14 @@ import 'ui/screens/lock_screen.dart';
 import 'ui/screens/setup_screen.dart';
 import 'ui/screens/splash_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: CitadelApp()));
+  final container = ProviderContainer();
+  await loadPersistedSettings(container);
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: const CitadelApp(),
+  ));
 }
 
 class CitadelApp extends ConsumerStatefulWidget {

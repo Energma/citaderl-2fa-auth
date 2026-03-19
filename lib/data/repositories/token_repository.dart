@@ -25,4 +25,13 @@ class TokenRepository {
   Future<void> importTokens(List<Token> tokens) => _db.insertTokens(tokens);
 
   Future<int> count() => _db.tokenCount();
+
+  Future<void> updateSortOrders(Map<String, int> idToOrder) =>
+      _db.updateTokenSortOrders(idToOrder);
+
+  Future<void> updateProfile(String tokenId, String? profileId) =>
+      _db.updateTokenProfile(tokenId, profileId);
+
+  Future<void> updateGroup(String tokenId, String? groupId) =>
+      _db.updateTokenGroup(tokenId, groupId);
 }

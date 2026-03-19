@@ -98,6 +98,14 @@ final profileListProvider = FutureProvider<List<Profile>>((ref) async {
   return ref.read(profileRepositoryProvider).getAll();
 });
 
+// --- Group List ---
+
+final groupListProvider = FutureProvider<List<TokenGroup>>((ref) async {
+  final vault = ref.watch(vaultProvider);
+  if (vault.status != VaultStatus.unlocked) return [];
+  return ref.read(profileRepositoryProvider).getAllGroups();
+});
+
 // --- Search ---
 
 final searchQueryProvider = StateProvider<String>((ref) => '');
@@ -108,10 +116,35 @@ final searchResultsProvider = FutureProvider<List<Token>>((ref) async {
   return ref.read(tokenRepositoryProvider).search(query);
 });
 
-// --- Settings ---
+// --- Biometric ---
+
+final biometricEnabledProvider = FutureProvider<bool>((ref) async {
+  return ref.read(keystoreServiceProvider).isBiometricEnabled();
+});
+
+// --- PIN ---
+
+final pinEnabledProvider = FutureProvider<bool>((ref) async {
+  return ref.read(keystoreServiceProvider).isPinEnabled();
+});
+
+// --- Settings (persisted) ---
 
 final autoLockDurationProvider = StateProvider<Duration>((ref) => const Duration(minutes: 5));
 
-// --- Theme ---
-
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
+
+/// Load persisted settings from keystore on app start.
+Future<void> loadPersistedSettings(ProviderContainer container) async {
+  final keystore = container.read(keystoreServiceProvider);
+
+  final minutes = await keystore.getAutoLockMinutes();
+  container.read(autoLockDurationProvider.notifier).state = Duration(minutes: minutes);
+
+  final themeStr = await keystore.getThemeMode();
+  container.read(themeModeProvider.notifier).state = switch (themeStr) {
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
+}

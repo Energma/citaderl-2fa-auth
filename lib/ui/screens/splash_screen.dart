@@ -22,7 +22,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 3000),
     );
 
     // 0.0–0.4: fade in + scale up
@@ -72,22 +72,11 @@ class _SplashScreenState extends State<SplashScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Lightning bolt icon
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Palette.primary,
-                      Palette.accent,
-                    ],
-                  ),
-                ),
-                child: const Icon(Icons.bolt, size: 36, color: Palette.splashBg),
+              Image.asset(
+                'assets/logo/energma_logo.png',
+                width: 80,
+                height: 80,
+                color: Palette.splashText,
               ),
               const SizedBox(height: 20),
               const Text(

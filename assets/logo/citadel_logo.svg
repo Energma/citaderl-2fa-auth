@@ -1,28 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
   <defs>
-    <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="cg" x1="0.2" y1="0" x2="0.8" y2="1">
       <stop offset="0%" stop-color="#06B6D4"/>
-      <stop offset="100%" stop-color="#0891B2"/>
-    </linearGradient>
-    <linearGradient id="innerGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#22D3EE"/>
-      <stop offset="100%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#84FFDA"/>
     </linearGradient>
   </defs>
-  <!-- Shield body -->
-  <path d="M256 28 L462 108 C462 108 472 310 256 484 C40 310 50 108 50 108 Z"
-        fill="url(#shieldGrad)" stroke="none"/>
-  <!-- Inner shield highlight -->
-  <path d="M256 64 L428 132 C428 132 436 300 256 448 C76 300 84 132 84 132 Z"
-        fill="none" stroke="url(#innerGrad)" stroke-width="4" opacity="0.5"/>
-  <!-- Keyhole circle -->
-  <circle cx="256" cy="210" r="52" fill="white" opacity="0.95"/>
-  <!-- Keyhole slot -->
-  <path d="M238 240 L256 340 L274 240 Z" fill="white" opacity="0.95"/>
-  <!-- Inner keyhole circle (dark) -->
-  <circle cx="256" cy="210" r="28" fill="#0E7490"/>
-  <!-- Turrets/battlements at top -->
-  <rect x="156" y="80" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
-  <rect x="244" y="56" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
-  <rect x="332" y="80" width="24" height="36" rx="2" fill="white" opacity="0.3"/>
+  <!-- Outer shield -->
+  <path d="M256 36C256 36 72 104 72 216C72 388 204 472 256 492C308 472 440 388 440 216C440 104 256 36 256 36Z"
+        stroke="url(#cg)" stroke-width="6" fill="rgba(6, 182, 212, 0.06)"/>
+  <!-- Inner shield -->
+  <path d="M256 76C256 76 108 136 108 232C108 372 220 444 256 460C292 444 404 372 404 232C404 136 256 76 256 76Z"
+        stroke="url(#cg)" stroke-width="3" fill="none" opacity="0.35"/>
+
+  <!-- Fortress base wall -->
+  <path d="M148 340L148 280L364 280L364 340"
+        stroke="url(#cg)" stroke-width="4" fill="rgba(6, 182, 212, 0.06)" stroke-linejoin="round"/>
+
+  <!-- Fortress crenellations on base wall -->
+  <path d="M148 280L148 270L160 270L160 280M172 280L172 270L184 270L184 280M196 280L196 270L208 270L208 280M220 280L220 270L232 270L232 280M244 280L244 270L256 270L256 280M268 280L268 270L280 270L280 280M292 280L292 270L304 270L304 280M316 280L316 270L328 270L328 280M340 280L340 270L352 270L352 280M352 280L364 280L364 270"
+        stroke="url(#cg)" stroke-width="2.5" fill="none" opacity="0.7"/>
+
+  <!-- Left corner tower -->
+  <rect x="136" y="220" width="36" height="120" rx="2"
+        stroke="url(#cg)" stroke-width="3.5" fill="rgba(6, 182, 212, 0.08)"/>
+  <!-- Left tower crenellations -->
+  <path d="M136 220L136 210L144 210L144 220M152 220L152 210L160 210L160 220L172 220L172 210"
+        stroke="url(#cg)" stroke-width="2.5" fill="none" opacity="0.7"/>
+
+  <!-- Right corner tower -->
+  <rect x="340" y="220" width="36" height="120" rx="2"
+        stroke="url(#cg)" stroke-width="3.5" fill="rgba(6, 182, 212, 0.08)"/>
+  <!-- Right tower crenellations -->
+  <path d="M340 220L340 210L348 210L348 220M356 220L356 210L364 210L364 220L376 220L376 210"
+        stroke="url(#cg)" stroke-width="2.5" fill="none" opacity="0.7"/>
+
+  <!-- Central keep / main tower (taller) -->
+  <rect x="228" y="172" width="56" height="108" rx="3"
+        stroke="url(#cg)" stroke-width="4" fill="rgba(6, 182, 212, 0.08)"/>
+  <!-- Central tower crenellations -->
+  <path d="M228 172L228 160L238 160L238 172M248 172L248 160L264 160L264 172M274 172L274 160L284 160L284 172"
+        stroke="url(#cg)" stroke-width="2.5" fill="none" opacity="0.8"/>
+
+  <!-- Left inner tower -->
+  <rect x="188" y="208" width="32" height="72" rx="2"
+        stroke="url(#cg)" stroke-width="3" fill="rgba(6, 182, 212, 0.06)"/>
+  <!-- Left inner tower crenellations -->
+  <path d="M188 208L188 198L196 198L196 208M204 208L204 198L212 198L212 208L220 208L220 198"
+        stroke="url(#cg)" stroke-width="2" fill="none" opacity="0.6"/>
+
+  <!-- Right inner tower -->
+  <rect x="292" y="208" width="32" height="72" rx="2"
+        stroke="url(#cg)" stroke-width="3" fill="rgba(6, 182, 212, 0.06)"/>
+  <!-- Right inner tower crenellations -->
+  <path d="M292 208L292 198L300 198L300 208M308 208L308 198L316 198L316 208L324 208L324 198"
+        stroke="url(#cg)" stroke-width="2" fill="none" opacity="0.6"/>
+
+  <!-- Gate arch (Romanesque double arch like Smederevo) -->
+  <path d="M244 340L244 304C244 296 248 290 256 290C264 290 268 296 268 304L268 340"
+        stroke="url(#cg)" stroke-width="3" fill="none"/>
+
+  <!-- Keyhole in gate (security element) -->
+  <circle cx="256" cy="316" r="5" fill="url(#cg)"/>
+  <path d="M256 320L253 332L259 332Z" fill="url(#cg)"/>
+
+  <!-- Double-arch windows on central tower (Smederevo Gothic/Romanesque style) -->
+  <path d="M242 198C242 192 246 188 250 188C254 188 256 192 256 198"
+        stroke="url(#cg)" stroke-width="2" fill="none" opacity="0.5"/>
+  <path d="M256 198C256 192 258 188 262 188C266 188 270 192 270 198"
+        stroke="url(#cg)" stroke-width="2" fill="none" opacity="0.5"/>
+
+  <!-- Tower window slits -->
+  <line x1="154" y1="252" x2="154" y2="264" stroke="url(#cg)" stroke-width="2" opacity="0.4"/>
+  <line x1="358" y1="252" x2="358" y2="264" stroke="url(#cg)" stroke-width="2" opacity="0.4"/>
+
+  <!-- Wall arrow slits -->
+  <line x1="200" y1="296" x2="200" y2="304" stroke="url(#cg)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="312" y1="296" x2="312" y2="304" stroke="url(#cg)" stroke-width="1.5" opacity="0.3"/>
+
+  <!-- Shield glow dots -->
+  <circle cx="256" cy="130" r="3" fill="url(#cg)" opacity="0.4"/>
+  <circle cx="164" cy="180" r="2.5" fill="url(#cg)" opacity="0.3"/>
+  <circle cx="348" cy="180" r="2.5" fill="url(#cg)" opacity="0.3"/>
+  <circle cx="140" cy="370" r="2" fill="url(#cg)" opacity="0.2"/>
+  <circle cx="372" cy="370" r="2" fill="url(#cg)" opacity="0.2"/>
 </svg>
